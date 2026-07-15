@@ -398,6 +398,15 @@ h2 {
   isolation: isolate;
 }
 
+.google-map-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #d8d8d8;
+}
+
 .road {
   position: absolute;
   z-index: 1;
@@ -801,6 +810,14 @@ h2 {
   padding: 20px;
 }
 
+.music-panel.has-youtube {
+  grid-template-columns: 1fr;
+}
+
+.music-panel.has-youtube .album-art {
+  min-height: 230px;
+}
+
 .album-art {
   position: relative;
   min-height: 175px;
@@ -845,6 +862,26 @@ h2 {
   color: rgba(255, 255, 255, 0.72);
 }
 
+.album-art.is-connected > .album-road,
+.album-art.is-connected > .album-sun,
+.album-art.is-connected > svg {
+  display: none;
+}
+
+.youtube-player-shell,
+.youtube-player-shell > div,
+.youtube-player-shell iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  border: 0;
+}
+
+.youtube-player-shell {
+  position: absolute;
+  inset: 0;
+}
+
 .music-content {
   min-width: 0;
   display: flex;
@@ -880,14 +917,100 @@ h2 {
   padding: 0 10px;
   border: 1px solid rgba(255, 77, 77, 0.28);
   border-radius: 11px;
+  background: transparent;
   color: #ff8d8d;
   font-size: 0.68rem;
   font-weight: 800;
+  cursor: pointer;
 }
 
 .youtube-button svg {
   width: 17px;
   height: 17px;
+}
+
+.music-dialog-copy,
+.music-embed-note {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.music-dialog-copy {
+  margin-bottom: 20px;
+  font-size: 0.78rem;
+}
+
+.music-url-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.music-url-field {
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-strong);
+}
+
+.music-url-field svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+
+.music-url-field input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.music-url-field input::placeholder {
+  color: #747b86;
+}
+
+.music-form-error {
+  margin: 9px 0 0;
+  color: #ff9b9b;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.music-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.secondary-button {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.music-embed-note {
+  margin: 14px 0 0;
+  font-size: 0.64rem;
+  text-align: center;
 }
 
 .player-progress {
