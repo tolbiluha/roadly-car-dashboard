@@ -1,0 +1,20 @@
+{
+  "name": "Roadly — розумна панель водія",
+  "short_name": "Roadly",
+  "description": "Автомобільна панель із GPS-спідометром, Google Maps і YouTube Music.",
+  "lang": "uk",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090a0d",
+  "theme_color": "#0c0e12",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
