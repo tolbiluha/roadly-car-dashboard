@@ -9,17 +9,13 @@ const state = {
   previousPosition: null,
   tripDistanceKm: 0,
   musicTimer: null,
-  currentTrack: 0,
-  trackProgress: 18,
+  youtubePlayer: null,
+  youtubeReady: false,
+  youtubeApiPromise: null,
+  musicDuration: 0,
   isPlaying: false,
   hasWarned: false,
 };
-
-const tracks = [
-  { title: "Night Drive", artist: "Aerial Motion", duration: 228 },
-  { title: "City Lights", artist: "Neon State", duration: 196 },
-  { title: "Open Road", artist: "Northbound", duration: 243 },
-];
 
 const elements = {
   clock: document.querySelector("#clock"),
@@ -29,6 +25,9 @@ const elements = {
   locateButton: document.querySelector("#locate-button"),
   routeForm: document.querySelector("#route-form"),
   destination: document.querySelector("#destination"),
+  googleMapFrame: document.querySelector("#google-map-frame"),
+  mapStatus: document.querySelector("#map-status"),
+  openMapsLink: document.querySelector("#open-maps-link"),
   speedValue: document.querySelector("#speed-value"),
   speedProgress: document.querySelector("#speed-progress"),
   speedometer: document.querySelector("#speedometer"),
@@ -50,6 +49,16 @@ const elements = {
   durationTime: document.querySelector("#duration-time"),
   musicTitle: document.querySelector("#music-title"),
   artistName: document.querySelector("#artist-name"),
+  volume: document.querySelector("#volume"),
+  musicPanel: document.querySelector("#music-panel"),
+  albumArt: document.querySelector("#album-art"),
+  connectMusic: document.querySelector("#connect-music"),
+  musicDialog: document.querySelector("#music-dialog"),
+  closeMusicDialog: document.querySelector("#close-music-dialog"),
+  youtubeForm: document.querySelector("#youtube-form"),
+  youtubeUrl: document.querySelector("#youtube-url"),
+  musicFormError: document.querySelector("#music-form-error"),
+  youtubePlayerShell: document.querySelector("#youtube-player-shell"),
   voiceAction: document.querySelector("#voice-action"),
   toast: document.querySelector("#toast"),
 };
@@ -66,7 +75,7 @@ function init() {
   elements.speedLimit.textContent = state.speedLimit;
   elements.defaultLimit.value = String(state.speedLimit);
   updateClock();
-  updateMusicUI();
+  prepareSavedMusic();
   updateSpeed(0);
   bindEvents();
 
@@ -100,13 +109,14 @@ function bindEvents() {
 
   elements.defaultLimit.addEventListener("change", () => setSpeedLimit(Number(elements.defaultLimit.value)));
   elements.speedWarningToggle.addEventListener("change", () => updateSpeed(state.speed));
+  elements.connectMusic.addEventListener("click", openMusicDialog);
+  elements.closeMusicDialog.addEventListener("click", () => elements.musicDialog.close());
+  elements.youtubeForm.addEventListener("submit", handleYoutubeSubmit);
   elements.playToggle.addEventListener("click", togglePlayback);
-  elements.previousTrack.addEventListener("click", () => changeTrack(-1));
-  elements.nextTrack.addEventListener("click", () => changeTrack(1));
-  elements.trackProgress.addEventListener("input", () => {
-    state.trackProgress = Number(elements.trackProgress.value);
-    updateTrackTime();
-  });
+  elements.previousTrack.addEventListener("click", () => controlPlaylist("previous"));
+  elements.nextTrack.addEventListener("click", () => controlPlaylist("next"));
+  elements.trackProgress.addEventListener("change", seekYoutubeTrack);
+  elements.volume.addEventListener("input", updateYoutubeVolume);
 
   elements.voiceAction.addEventListener("click", startVoiceSearch);
 
@@ -149,6 +159,7 @@ function startGps() {
 
 function handlePosition(position) {
   const { latitude, longitude, speed, accuracy } = position.coords;
+  const isFirstFix = state.coords === null;
   state.coords = { latitude, longitude };
   elements.startDrive.disabled = false;
   elements.startDrive.querySelector("span").textContent = "GPS активний";
@@ -158,6 +169,10 @@ function handlePosition(position) {
   const nextSpeed = Number.isFinite(speed) && speed >= 0 ? speed * 3.6 : 0;
   updateSpeed(nextSpeed);
   updateTripDistance(latitude, longitude);
+
+  if (isFirstFix) {
+    showPositionOnMap(latitude, longitude, accuracy);
+  }
 }
 
 function handlePositionError(error) {
@@ -246,7 +261,23 @@ function openRoute(event) {
 
   const params = new URLSearchParams({ api: "1", destination, travelmode: "driving" });
   if (state.coords) params.set("origin", `${state.coords.latitude},${state.coords.longitude}`);
-  window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank", "noopener,noreferrer");
+  elements.openMapsLink.href = `https://www.google.com/maps/dir/?${params.toString()}`;
+  elements.googleMapFrame.src = googleMapEmbedUrl(destination, 15);
+  elements.mapStatus.querySelector("strong").textContent = "Пункт призначення";
+  elements.mapStatus.querySelector("span").textContent = destination;
+  showToast("Карту оновлено. Натисніть «Маршрут», щоб запустити навігацію");
+}
+
+function googleMapEmbedUrl(query, zoom = 14) {
+  return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${zoom}&output=embed`;
+}
+
+function showPositionOnMap(latitude, longitude, accuracy) {
+  const coordinates = `${latitude},${longitude}`;
+  elements.googleMapFrame.src = googleMapEmbedUrl(coordinates, 16);
+  elements.openMapsLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coordinates)}`;
+  elements.mapStatus.querySelector("strong").textContent = "Ви тут";
+  elements.mapStatus.querySelector("span").textContent = `GPS ±${Math.round(accuracy)} м`;
 }
 
 function updateTripDistance(latitude, longitude) {
@@ -277,51 +308,246 @@ function updateTripTime() {
   elements.tripTime.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function prepareSavedMusic() {
+  const savedUrl = localStorage.getItem("roadly-youtube-url");
+  if (savedUrl) {
+    elements.youtubeUrl.value = savedUrl;
+    elements.musicTitle.textContent = "Збережене посилання";
+    elements.artistName.textContent = "Натисніть «Підключити»";
+  }
+  updateTrackDisplay(0, 0);
+}
+
+function openMusicDialog() {
+  elements.musicFormError.hidden = true;
+  elements.musicDialog.showModal();
+  elements.youtubeUrl.focus();
+}
+
+async function handleYoutubeSubmit(event) {
+  event.preventDefault();
+  elements.musicFormError.hidden = true;
+
+  try {
+    const config = parseYoutubeUrl(elements.youtubeUrl.value.trim());
+    elements.artistName.textContent = "Підключення…";
+    await connectYoutubeMusic(config);
+    localStorage.setItem("roadly-youtube-url", elements.youtubeUrl.value.trim());
+    elements.musicDialog.close();
+    showToast("YouTube Music підключено. Натисніть Play, якщо відтворення не почалося автоматично");
+  } catch (error) {
+    elements.musicFormError.textContent = error.message || "Не вдалося підключити це посилання";
+    elements.musicFormError.hidden = false;
+  }
+}
+
+function parseYoutubeUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Вставте повне посилання YouTube Music");
+  }
+
+  const host = url.hostname.replace(/^www\./, "");
+  const allowedHosts = ["music.youtube.com", "youtube.com", "m.youtube.com", "youtu.be"];
+  if (!allowedHosts.includes(host)) {
+    throw new Error("Підтримуються посилання YouTube Music або YouTube");
+  }
+
+  let videoId = url.searchParams.get("v");
+  if (host === "youtu.be") videoId = url.pathname.split("/").filter(Boolean)[0] || null;
+  if (!videoId && /\/(shorts|embed)\//.test(url.pathname)) {
+    videoId = url.pathname.split("/").filter(Boolean)[1] || null;
+  }
+
+  const playlistId = url.searchParams.get("list");
+  if (!videoId && !playlistId) {
+    throw new Error("У посиланні не знайдено трек або плейлист");
+  }
+
+  return { videoId, playlistId };
+}
+
+function loadYoutubeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (state.youtubeApiPromise) return state.youtubeApiPromise;
+
+  state.youtubeApiPromise = new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error("YouTube не відповідає. Перевірте інтернет-з’єднання")), 15000);
+    const previousReady = window.onYouTubeIframeAPIReady;
+
+    window.onYouTubeIframeAPIReady = () => {
+      previousReady?.();
+      clearTimeout(timeout);
+      resolve(window.YT);
+    };
+
+    const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      script.addEventListener("error", () => {
+        clearTimeout(timeout);
+        reject(new Error("Не вдалося завантажити YouTube Player"));
+      });
+      document.head.append(script);
+    }
+  });
+
+  state.youtubeApiPromise.catch(() => {
+    state.youtubeApiPromise = null;
+  });
+
+  return state.youtubeApiPromise;
+}
+
+async function connectYoutubeMusic(config) {
+  await loadYoutubeApi();
+  elements.youtubePlayerShell.hidden = false;
+  elements.albumArt.classList.add("is-connected");
+  elements.musicPanel.classList.add("has-youtube");
+  state.youtubeReady = false;
+
+  if (state.youtubePlayer?.loadVideoById) {
+    if (config.playlistId) {
+      state.youtubePlayer.loadPlaylist({ list: config.playlistId, index: 0, startSeconds: 0 });
+    } else {
+      state.youtubePlayer.loadVideoById(config.videoId);
+    }
+    return;
+  }
+
+  const playerVars = {
+    autoplay: 1,
+    controls: 1,
+    playsinline: 1,
+    rel: 0,
+    origin: window.location.origin,
+  };
+
+  if (config.playlistId) {
+    playerVars.listType = "playlist";
+    playerVars.list = config.playlistId;
+  }
+
+  const playerOptions = {
+    width: "100%",
+    height: "100%",
+    playerVars,
+    events: {
+      onReady: handleYoutubeReady,
+      onStateChange: handleYoutubeState,
+      onError: handleYoutubeError,
+    },
+  };
+
+  if (config.videoId) playerOptions.videoId = config.videoId;
+  state.youtubePlayer = new window.YT.Player("youtube-player", playerOptions);
+}
+
+function handleYoutubeReady(event) {
+  state.youtubeReady = true;
+  event.target.setVolume(Number(elements.volume.value));
+  event.target.playVideo();
+  startYoutubeSync();
+  syncYoutubeProgress();
+}
+
+function handleYoutubeState(event) {
+  const playing = event.data === window.YT.PlayerState.PLAYING;
+  const paused = event.data === window.YT.PlayerState.PAUSED || event.data === window.YT.PlayerState.ENDED;
+  if (playing || paused) setMusicPlaying(playing);
+  syncYoutubeProgress();
+}
+
+function handleYoutubeError() {
+  setMusicPlaying(false);
+  elements.artistName.textContent = "Вбудовування цього треку заборонено";
+  showToast("Цей трек не дозволяє відтворення на сторонньому сайті. Відкрийте його в YouTube Music");
+}
+
 function togglePlayback() {
-  state.isPlaying = !state.isPlaying;
-  elements.playToggle.setAttribute("aria-pressed", String(state.isPlaying));
-  elements.playToggle.setAttribute("aria-label", state.isPlaying ? "Пауза" : "Відтворити");
-  elements.playToggle.innerHTML = `<i data-lucide="${state.isPlaying ? "pause" : "play"}" aria-hidden="true"></i>`;
+  if (!state.youtubeReady) {
+    openMusicDialog();
+    return;
+  }
+
+  if (state.isPlaying) state.youtubePlayer.pauseVideo();
+  else {
+    state.youtubePlayer.playVideo();
+    window.setTimeout(() => {
+      if (state.isPlaying) return;
+      showToast("Якщо браузер блокує запуск, натисніть ▶ у самому YouTube-плеєрі");
+    }, 900);
+  }
+}
+
+function setMusicPlaying(playing) {
+  state.isPlaying = playing;
+  elements.playToggle.setAttribute("aria-pressed", String(playing));
+  elements.playToggle.setAttribute("aria-label", playing ? "Пауза" : "Відтворити");
+  elements.playToggle.innerHTML = `<i data-lucide="${playing ? "pause" : "play"}" aria-hidden="true"></i>`;
   window.lucide?.createIcons({ attrs: { "stroke-width": 2 } });
+}
 
-  if (state.isPlaying) {
-    state.musicTimer = window.setInterval(() => {
-      state.trackProgress += 100 / tracks[state.currentTrack].duration;
-      if (state.trackProgress >= 100) changeTrack(1);
-      updateTrackTime();
-    }, 1000);
-  } else {
-    clearInterval(state.musicTimer);
-    state.musicTimer = null;
+function controlPlaylist(direction) {
+  if (!state.youtubeReady) {
+    openMusicDialog();
+    return;
+  }
+
+  if (direction === "next") state.youtubePlayer.nextVideo();
+  else state.youtubePlayer.previousVideo();
+  window.setTimeout(syncYoutubeProgress, 350);
+}
+
+function seekYoutubeTrack() {
+  if (!state.youtubeReady || !state.musicDuration) return;
+  const seconds = (Number(elements.trackProgress.value) / 100) * state.musicDuration;
+  state.youtubePlayer.seekTo(seconds, true);
+}
+
+function updateYoutubeVolume() {
+  if (state.youtubeReady) state.youtubePlayer.setVolume(Number(elements.volume.value));
+}
+
+function startYoutubeSync() {
+  clearInterval(state.musicTimer);
+  state.musicTimer = window.setInterval(syncYoutubeProgress, 1000);
+}
+
+function syncYoutubeProgress() {
+  if (!state.youtubeReady) return;
+
+  const duration = Number(state.youtubePlayer.getDuration?.()) || 0;
+  const current = Number(state.youtubePlayer.getCurrentTime?.()) || 0;
+  state.musicDuration = duration;
+  updateTrackDisplay(current, duration);
+
+  const videoData = state.youtubePlayer.getVideoData?.() || {};
+  if (videoData.title) elements.musicTitle.textContent = videoData.title;
+  elements.artistName.textContent = videoData.author || "YouTube Music";
+
+  if (videoData.title && "mediaSession" in navigator && "MediaMetadata" in window) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: videoData.title,
+      artist: videoData.author || "YouTube Music",
+      album: "Roadly",
+    });
   }
 }
 
-function changeTrack(direction) {
-  state.currentTrack = (state.currentTrack + direction + tracks.length) % tracks.length;
-  state.trackProgress = 0;
-  updateMusicUI();
-}
-
-function updateMusicUI() {
-  const track = tracks[state.currentTrack];
-  elements.musicTitle.textContent = track.title;
-  elements.artistName.textContent = track.artist;
-  elements.durationTime.textContent = formatTime(track.duration);
-  updateTrackTime();
-
-  if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: track.artist, album: "Roadly demo queue" });
-  }
-}
-
-function updateTrackTime() {
-  const duration = tracks[state.currentTrack].duration;
-  elements.trackProgress.value = String(state.trackProgress);
-  elements.elapsedTime.textContent = formatTime(Math.round((state.trackProgress / 100) * duration));
+function updateTrackDisplay(current, duration) {
+  const progress = duration > 0 ? (current / duration) * 100 : 0;
+  elements.trackProgress.value = String(Math.max(0, Math.min(100, progress)));
+  elements.elapsedTime.textContent = formatTime(current);
+  elements.durationTime.textContent = formatTime(duration);
 }
 
 function formatTime(seconds) {
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, "0")}`;
 }
 
 function startVoiceSearch() {
