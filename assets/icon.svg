@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Roadly">
+  <rect width="512" height="512" rx="112" fill="#0c0e12"/>
+  <path d="M145 104h126c87 0 139 43 139 119 0 51-26 88-72 107l79 78H302l-63-66h-1v66h-93V104Zm93 80v83h30c33 0 51-14 51-42 0-27-18-41-51-41h-30Z" fill="#d9ff57"/>
+  <path d="M117 430h278" stroke="#d9ff57" stroke-width="20" stroke-linecap="round"/>
+</svg>
